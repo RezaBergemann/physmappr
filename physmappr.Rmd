@@ -1,0 +1,98 @@
+---
+title: "physmappr"
+output: html_notebook
+---
+```{r}
+library(httr)
+library(jsonlite)
+
+library(tidyverse)
+library(ggplot2)
+theme_set(theme_bw())
+library(gganimate)
+
+
+library(sf)
+library(rnaturalearth)
+library(maps)
+
+library(rgeos)
+
+library(ncdf4)
+
+source("helpers.R")
+```
+
+
+```{r results = "hide"}
+#Collect data from all sources
+phys_data <- importGBIF() %>%
+  bind_rows(importJellywatch()) %>%
+  bind_rows(importOBIS() %>% filter(1960 < year & year > 1966)) %>%
+  bind_rows(importLit()) %>%
+  drop_na(lon) %>% drop_na(lat)
+```
+
+```{r}
+#Convert to spatial data
+phys_data <- st_as_sf(phys_data, coords = c("lon", "lat"), crs = 4326, agr = "constant", remove = FALSE)
+
+#load world map data
+world <- ne_countries(scale = 'medium', returnclass = 'sf')
+states <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
+
+world_map <- ggplot(data = world) + geom_sf() + geom_sf(data = states, fill = NA)
+
+```
+
+```{r}
+
+#Set desired bounding box
+lat_min = 22
+lat_max = 47
+lon_min = -97
+lon_max = -59
+
+#Filter out desired data + month
+phys_edited <- phys_data %>% 
+  filter(lat > lat_min & lat< lat_max & lon > lon_min & lon < lon_max) %>% 
+  filter(!is.na(month))
+
+#Determine best year
+phys_edited %>% 
+  group_by(year) %>%
+  summarize(n=n()) %>%
+  arrange(desc(n))
+
+```
+
+```{r}
+
+year = 2018
+phys_single_year <- phys_edited %>% 
+  filter(year == year)
+
+
+world_map + geom_sf(data = phys_single_year, size = 2, shape = 21, alpha = .5, aes(fill = as.factor(month))) +   coord_sf(ylim = c(lat_min, lat_max), xlim = c(lon_min, lon_max), expand = FALSE)        
+```
+
+```{r} 
+
+months = c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug' ,'Sep', 'Oct','Nov', 'Dec')
+
+monthly <- world_map  + geom_sf(data = phys_single_year, size = 2, shape = 21, alpha = .5, aes(fill = as.factor(month))) + transition_time(month) + coord_sf(ylim = c(lat_min, lat_max), xlim = c(lon_min, lon_max) , expand = FALSE) + labs(title = 'Month: {months[frame_time]}') 
+
+
+animate(monthly, nframes = 12, fps = 1, width = 5, height = 4, units = "in", res = 300)
+```
+
+
+
+
+```{r}
+sst_filt <- sst %>% filter(month ==1)
+
+ggplot() + geom_raster(data = sst_filt, aes(x = lon, y = lat, fill= temp))
+```
+
+https://www1.ncdc.noaa.gov/pub/data/cmb/ersst/v5/netcdf/ersst.v5.201710.nc
